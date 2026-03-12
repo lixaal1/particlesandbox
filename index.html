@@ -185,12 +185,13 @@
         <button id="btn-gas"              onclick="setMaterial('gas')">💨 Gaas</button>
     </div>
 
-    <!-- 2. PINTSLIREŽIIM: Joonista / Tõmba / Tõuka -->
+    <!-- 2. PINTSLIREŽIIM: Joonista / Tõmba / Tõuka / Vortex -->
     <div class="grp">
         <label>Pintsel</label>
-        <button id="btn-paint"  class="active" onclick="setBrush('paint')">✏ Joonista</button>
-        <button id="btn-attract"            onclick="setBrush('attract')">🧲 Tõmba</button>
-        <button id="btn-repel"              onclick="setBrush('repel')">💥 Tõuka</button>
+        <button id="btn-paint"   class="active" onclick="setBrush('paint')">✏ Joonista</button>
+        <button id="btn-attract"             onclick="setBrush('attract')">🧲 Tõmba</button>
+        <button id="btn-repel"               onclick="setBrush('repel')">💥 Tõuka</button>
+        <button id="btn-vortex"              onclick="setBrush('vortex')">🌀 Pyörre</button>
     </div>
 
     <!-- 3. VÄRVI TOON (Hue): 0–360 värviratas -->
@@ -223,6 +224,15 @@
         <button                   onclick="takeShot()">📷 Pilt</button>
         <button id="btn-organize" onclick="toggleOrganize()">✨ Rivista</button>
         <button                   onclick="clearAll()">🗑 Puhasta</button>
+    </div>
+
+    <!-- UUED 5 FUNKTSIOONI: Vikerkaar / Jäljed / Ilutuli / Plahvatus -->
+    <div class="grp">
+        <label>Lisad</label>
+        <button id="btn-rainbow"   onclick="toggleRainbow()">🌈 Vikerkaar</button>
+        <button id="btn-trails"    onclick="toggleTrails()">⚡ Jäljed</button>
+        <button id="btn-fireworks" onclick="toggleFireworks()">🎆 Ilutuli</button>
+        <button                    onclick="explode()">💣 Plahvatus</button>
     </div>
 
     <!-- PORTFOOLIO LINK UI RIBAS -->
@@ -307,7 +317,7 @@ const MAX_PARTICLES = 4000;   // Maksimaalne osakeste arv ekraanil
 const PARTICLE_R    = 3;      // Osake raadius pikslites
 const LIFE_MS       = 10000;  // Osake eluiga millisekunditees (10 s)
 const CELL_SIZE     = 10;     // Ruumilise räsi lahtrsuurus pikslites
-const SOUND_GAP_MS  = 85;     // Minimaalne paus kahe helisignaali vahel
+// SOUND_GAP_MS eemaldatud – helid on keelatud
 
 let particles    = [];        // Kõigi aktiivsete osakeste massiiv
 let frozen       = false;     // Kas aja külmutamine on sisse lülitatud
@@ -317,7 +327,14 @@ let currentMat   = 'sand';   // Praegune materjal
 let currentBrush = 'paint';  // Praegune pintslirežiim
 let mouseDown    = false;     // Kas hiirenupp on all
 let mouseX = 0, mouseY = 0;  // Praegune hiire positsioon
-let lastSoundMs  = 0;         // Viimase heli ajatempel
+
+// ── UUED FUNKTSIOONID (F11–F15) olek ─────────────────────────
+let rainbowOn     = false;    // F11 Rainbow: vikerkaarehue tsüklimine
+let rainbowHue    = 0;        // F11 Praegune vikerkaaretoon 0–360
+let trailOn       = false;    // F12 Trails: liikumisjäljed
+let fireworksOn   = false;    // F14 Fireworks: automaatne ilutuli
+let fireworkTimer = 0;        // F14 Ilutuli ajaloendur ms
+let shockwave     = null;     // F13 Plahvatuse lainering { x,y,r,maxR,alpha }
 
 
 // ────────────────────────────────────────────────────────────────
@@ -537,10 +554,10 @@ function setMaterial(mat) {
     );
 }
 
-/** Vahetab pintslirežiimi (maali / tõmba / tõuka) */
+/** Vahetab pintslirežiimi (maali / tõmba / tõuka / vortex) */
 function setBrush(mode) {
     currentBrush = mode;
-    ['paint', 'attract', 'repel'].forEach(m =>
+    ['paint', 'attract', 'repel', 'vortex'].forEach(m =>
         document.getElementById('btn-' + m).classList.toggle('active', m === mode)
     );
 }
@@ -583,6 +600,87 @@ function clearAll() {
     particles = [];
     organizing = false;
     document.getElementById('btn-organize').classList.remove('active');
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// UUED FUNKTSIOONID (F11–F15)
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * F11: RAINBOW MODE – vikerkaarevärv
+ * Tsükleerib rainbowHue automaatselt 0–360 igal kaadril.
+ * Uued osakesed saavad selle dünaamilise värvitooni,
+ * tekitades pidevalt muutuva vikerkaarele
+ */
+function toggleRainbow() {
+    rainbowOn = !rainbowOn;
+    document.getElementById('btn-rainbow').classList.toggle('active', rainbowOn);
+}
+
+/**
+ * F12: MOTION TRAILS – liikumisjäljed
+ * Kui sees, asendatakse täiesti läbipaistmatu taustatäide
+ * poolläbipaistuva katmisega (rgba alpha=0.14).
+ * Kiiresti liikuvad osakesed jätavad neonpikkused jäljed.
+ */
+function toggleTrails() {
+    trailOn = !trailOn;
+    document.getElementById('btn-trails').classList.toggle('active', trailOn);
+}
+
+/**
+ * F13: EXPLOSION SHOCKWAVE – plahvatus
+ * Tõukab kõik osakesed hiire asukohast kiiresti eemale.
+ * Jõud on pöördvõrdeline kaugusega: lähemal = kiirem lend.
+ * Käivitab ka laieneava rõngas-visuaalefekti (shockwave).
+ */
+function explode() {
+    const cx = mouseX, cy = mouseY;
+    for (const p of particles) {
+        const dx   = p.x - cx;
+        const dy   = p.y - cy;
+        const dist = Math.hypot(dx, dy) || 1;
+        // Jõud langeb kaugusega – kuid on piiratud maksimaalselt 18-ga
+        const force = Math.min(400 / (dist + 1), 18);
+        p.vx += (dx / dist) * force;
+        p.vy += (dy / dist) * force;
+    }
+    // Käivita laienev rõngas-animatsioon
+    shockwave = { x: cx, y: cy, r: 5, maxR: 280, alpha: 1 };
+}
+
+/**
+ * F14: FIREWORKS – automaatne ilutuli
+ * Kui sees, heidetakse iga ~1.2 s sahv:
+ * 38 osakest kiiratakse ringjalt ühest punktist.
+ * Loob visuaalse ilutulestiku efekti.
+ */
+function toggleFireworks() {
+    fireworksOn = !fireworksOn;
+    fireworkTimer = 0;
+    document.getElementById('btn-fireworks').classList.toggle('active', fireworksOn);
+}
+
+/**
+ * spawnFirework(x, y) – loob ühe ilutulestiku pahva.
+ * Heidab 38 osakest ühtlaselt kõigis suundades.
+ * @param {number} x – plahvatuse x koordinaat
+ * @param {number} y – plahvatuse y koordinaat
+ */
+function spawnFirework(x, y) {
+    const count = 38;
+    const hue   = Math.random() * 360;
+    for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2;
+        const speed = 3.5 + Math.random() * 5;
+        const p = new Particle(x, y, 'sand', hue + Math.random() * 45);
+        // Ürgsta kiirus ringjalt kõigis suundades
+        p.vx = Math.cos(angle) * speed;
+        p.vy = Math.sin(angle) * speed;
+        p.l  = 68; // erksam
+        if (particles.length < MAX_PARTICLES) particles.push(p);
+    }
 }
 
 
@@ -710,11 +808,10 @@ function updatePhysics(dt) {
         }
 
         // ── F3: ATTRACT & REPEL PINTSEL ──────────────────────────
-        // Kui hiir on all ja pintsel pole "maali" režiimis,
+        // Kui hiir on all ja pintsel on 'attract' või 'repel',
         // rakenda gravitatsioonisarnast jõudu kõigile osakestele
-        // pintsliraadiuses. Tõmba: osake liigub hiire poole.
-        // Tõuka: osake põrkub hiire eest eemale.
-        if (mouseDown && currentBrush !== 'paint') {
+        // pintsliraadiuses.
+        if (mouseDown && (currentBrush === 'attract' || currentBrush === 'repel')) {
             const dx   = mouseX - p.x;
             const dy   = mouseY - p.y;
             const dist = Math.hypot(dx, dy);
@@ -723,6 +820,21 @@ function updatePhysics(dt) {
                 const force = dir * 0.65 / dist;
                 p.vx += dx * force;
                 p.vy += dy * force;
+            }
+        }
+
+        // ── F15: VORTEX PINTSEL ───────────────────────────────────
+        // Vortex rakendab tangentsiaalset (risti radiaalsuunaga) jõudu.
+        // Matemaatika: perpendikulaarne vektor (dx,dy) on (-dy, dx).
+        // See paneb osakesed hiire ümber pöördvoolus liikuma.
+        if (mouseDown && currentBrush === 'vortex') {
+            const dx   = p.x - mouseX;
+            const dy   = p.y - mouseY;
+            const dist = Math.hypot(dx, dy);
+            if (dist < bR && dist > 0.5) {
+                // Perpendikulaarne suund: (-dy, dx) / dist
+                p.vx += (-dy / dist) * 0.95;
+                p.vy += ( dx / dist) * 0.95;
             }
         }
 
@@ -844,16 +956,10 @@ function updatePhysics(dt) {
                 o.h = ((o.h - hdiff * 0.04) + 360) % 360;
             }
 
-            // ── F5: COLLISION SOUND ───────────────────────────────
-            // Piirang: heli kõlab mitte rohkem kui 1× iga SOUND_GAP_MS ms.
-            // justCollided lipp takistab sama osake korduvat helide käivitamist.
-            if (!p.justCollided && (now - lastSoundMs) > SOUND_GAP_MS) {
-                AudioEngine.playCollision(p.material);
-                lastSoundMs = now;
-                p.justCollided = true;
-                // Lähtesta lipp 200ms pärast
-                setTimeout(() => { if (p) p.justCollided = false; }, 200);
-            }
+            // ── F5: COLLISION SOUND – KEELATUD (disabled)
+            // Helid on välja lülitatud. AudioEngine kood on alles olemas
+            // §5-s, kuid allolevat kutset ei tehta enam.
+            // AudioEngine.playCollision(p.material);
         }
     }
 
@@ -880,9 +986,30 @@ function updatePhysics(dt) {
 function render() {
     ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
 
-    // Tugev tume taust
-    ctx.fillStyle = '#080810';
+    // F12: Trails – poollabi taust loob liikumisjäljed;
+    // tavalises režiimis puhastab täielikult.
+    if (trailOn) {
+        ctx.fillStyle = 'rgba(8,8,16,0.14)';
+    } else {
+        ctx.fillStyle = '#080810';
+    }
     ctx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+    // F13: Shockwave – laienev rõngas-visuaal plahvatuse järel.
+    // Rõnga raadius kasvab iga kaadriga 14px võrra kuni maxR-ni,
+    // alfa vähendatakse proportsionaalselt kuni see kaob.
+    if (shockwave) {
+        shockwave.r += 14;
+        shockwave.alpha = Math.max(0, 1 - shockwave.r / shockwave.maxR);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(shockwave.x, shockwave.y, shockwave.r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(200,170,255,${shockwave.alpha})`;
+        ctx.lineWidth = 3 * shockwave.alpha + 1;
+        ctx.stroke();
+        ctx.restore();
+        if (shockwave.r >= shockwave.maxR) shockwave = null;
+    }
 
     const TWO_PI = Math.PI * 2;
 
@@ -1008,10 +1135,30 @@ function gameLoop(now) {
     const dt = Math.min(now - lastFrameTime, 50); // dt piirang 50ms
     lastFrameTime = now;
 
+    // F11: Rainbow Mode – suurenda rainbowHue automaatselt igal kaadril.
+    // Kiirus 1.4°/kaader tähendab täisringi ~4.3 sekundiga.
+    if (rainbowOn) {
+        rainbowHue = (rainbowHue + 1.4) % 360;
+    }
+
+    // F14: Fireworks – käivita uus pahv iga ~1200ms järel.
+    // Juhuslik asukoht: x kogu laius, y ülemine 15–60% kõrgusest.
+    if (fireworksOn) {
+        fireworkTimer += dt;
+        if (fireworkTimer >= 1200) {
+            fireworkTimer = 0;
+            const fx = 60 + Math.random() * (mainCanvas.width - 120);
+            const fy = mainCanvas.height * 0.12 + Math.random() * mainCanvas.height * 0.48;
+            spawnFirework(fx, fy);
+        }
+    }
+
     // F1 + F8: Osakeste loomine lohistamise ajal (maali-režiim)
-    // Life & Death: uued osakesed "sünnivad" hiire klikkimise kohal.
+    // F11: Kui rainbow on sees, kasuta rainbowHue liugri asemel.
     if (mouseDown && currentBrush === 'paint') {
-        const hue   = parseFloat(document.getElementById('hueRange').value);
+        const hue   = rainbowOn
+            ? rainbowHue   // F11: dünaamiline vikerkaaretoon
+            : parseFloat(document.getElementById('hueRange').value);
         const bSize = parseFloat(document.getElementById('brushRange').value);
         // Suurem pintsel → rohkem osakeseid korraga
         const count = Math.max(1, Math.round(bSize / 11));
