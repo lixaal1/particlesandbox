@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="et">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Particle Sandbox – Digitaalse Elu Simulaator</title>
+    <style>
+        /* ============================================================
+           PÕHISTIILID
+           Tumeda teema kujundus, kooskõlas portfoolio visuaaliga.
+           ============================================================ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #080810;
+            color: #dde0ee;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* ── KONTROLLRIBA ────────────────────────────────────────── */
+        #ui {
+            flex-shrink: 0;
+            background: #0d0d18;
+            border-bottom: 1px solid #1e1e38;
+            padding: 5px 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            align-items: center;
+        }
+
+        /* Kontrollirühm – üks kastike groupide ümber */
+        .grp {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 8px;
+            background: #13131e;
+            border: 1px solid #22223a;
+            border-radius: 7px;
+        }
+
+        .grp > label {
+            font-size: 10px;
+            color: #55557a;
+            white-space: nowrap;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+        }
+
+        button {
+            padding: 3px 9px;
+            border-radius: 5px;
+            border: 1px solid #2e2e48;
+            background: #18182c;
+            color: #8888aa;
+            font-size: 11px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+            white-space: nowrap;
+            line-height: 1.5;
+        }
+        button:hover  { background: #20203a; border-color: #5555cc; color: #bbbbff; }
+        button.active { background: rgba(80,80,255,0.15); border-color: #6666ff; color: #9999ff; }
+
+        /* Range liugur */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 68px; height: 4px;
+            background: #222238;
+            border-radius: 2px;
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: #5555cc;
+            cursor: pointer;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: #5555cc;
+            cursor: pointer; border: none;
+        }
+
+        /* Väike värvilapp praeguse värvi kuvamiseks */
+        .swatch {
+            width: 13px; height: 13px;
+            border-radius: 50%;
+            border: 1px solid #44446a;
+            flex-shrink: 0;
+        }
+
+        /* Tuule numbriväärtuse kuvaja */
+        #windVal {
+            font-size: 10px;
+            color: #55557a;
+            width: 28px;
+            text-align: center;
+        }
+
+        /* ── LÕUENDI KIHT ────────────────────────────────────────── */
+        #wrap {
+            position: relative;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0; left: 0;
+            display: block;
+        }
+
+        /*
+         * heatCanvas – soojuskaardi kiht.
+         * CSS filter:blur() hägustab punktid "termokaamera" efektiks.
+         * mix-blend-mode:screen laseb see kirje läbi põhilõuendiga.
+         */
+        #heatCanvas {
+            pointer-events: none;
+            display: none;
+            mix-blend-mode: screen;
+            filter: blur(14px);
+            opacity: 0.8;
+        }
+
+        /* Aja külmutamise sinist tooni ülekatteefekt */
+        #iceOverlay {
+            position: absolute;
+            inset: 0;
+            display: none;
+            border: 2px solid rgba(80,120,255,0.35);
+            background: rgba(60,90,240,0.04);
+            pointer-events: none;
+            z-index: 3;
+        }
+
+        /* HUD – osakeste arv + simulatsiooni olek */
+        #hud {
+            position: absolute;
+            top: 8px; left: 10px;
+            font-size: 10px;
+            color: #2a2a44;
+            pointer-events: none;
+            z-index: 4;
+            line-height: 1.7;
+        }
+
+        /* Portfoolio link alumises nurgas */
+        #portLink {
+            position: absolute;
+            bottom: 10px; right: 14px;
+            font-size: 11px;
+            color: #2a2a44;
+            text-decoration: none;
+            z-index: 4;
+            transition: color 0.2s;
+        }
+        #portLink:hover { color: #7777ff; }
+
+    </style>
+</head>
+<body>
+
+<!-- ==============================================================
+     KASUTAJALIIDESE KONTROLLRIBA
+     Kõik juhtelemendid on grupeeritud kasutajaliidese ribas.
+     ============================================================== -->
+<div id="ui">
+
+    <!-- 1. MATERJALI VALIK: Liiv / Vesi / Gaas -->
+    <div class="grp">
+        <label>Materjal</label>
+        <button id="btn-sand"  class="active" onclick="setMaterial('sand')">🏖 Liiv</button>
+        <button id="btn-water"            onclick="setMaterial('water')">💧 Vesi</button>
+        <button id="btn-gas"              onclick="setMaterial('gas')">💨 Gaas</button>
+    </div>
+
+    <!-- 2. PINTSLIREŽIIM: Joonista / Tõmba / Tõuka -->
+    <div class="grp">
+        <label>Pintsel</label>
+        <button id="btn-paint"  class="active" onclick="setBrush('paint')">✏ Joonista</button>
+        <button id="btn-attract"            onclick="setBrush('attract')">🧲 Tõmba</button>
+        <button id="btn-repel"              onclick="setBrush('repel')">💥 Tõuka</button>
+    </div>
+
+    <!-- 3. VÄRVI TOON (Hue): 0–360 värviratas -->
+    <div class="grp">
+        <label>Värv</label>
+        <input type="range" id="hueRange" min="0" max="360" value="45"
+               oninput="updateSwatch()">
+        <div class="swatch" id="swatch" style="background:hsl(45,80%,60%)"></div>
+    </div>
+
+    <!-- 7. TUULEEJÕUD: -5 (vasak) kuni +5 (parem) -->
+    <div class="grp">
+        <label>Tuul</label>
+        <input type="range" id="windRange" min="-5" max="5" step="0.1" value="0"
+               oninput="document.getElementById('windVal').textContent=parseFloat(this.value).toFixed(1)">
+        <span id="windVal">0.0</span>
+    </div>
+
+    <!-- PINTSLISUURUSE REGULEERIMINE -->
+    <div class="grp">
+        <label>Pint.Suurus</label>
+        <input type="range" id="brushRange" min="5" max="80" value="20">
+    </div>
+
+    <!-- ERIEFEKTID: heatmap, külmutus, screenshot, rivistus, puhastus -->
+    <div class="grp">
+        <label>Efektid</label>
+        <button id="btn-heat"     onclick="toggleHeat()">🌡 Soojuskaart</button>
+        <button id="btn-freeze"   onclick="toggleFreeze()">❄ Külmuta</button>
+        <button                   onclick="takeShot()">📷 Pilt</button>
+        <button id="btn-organize" onclick="toggleOrganize()">✨ Rivista</button>
+        <button                   onclick="clearAll()">🗑 Puhasta</button>
+    </div>
+
+    <!-- PORTFOOLIO LINK UI RIBAS -->
+    <div class="grp">
+        <a href="../portfoolio/index.html"
+           style="color:#4444aa;font-size:11px;text-decoration:none;white-space:nowrap">
+            ← Portfoolio
+        </a>
+    </div>
+
+</div><!-- /ui -->
+
+<!-- ==============================================================
+     LÕUENDITE KIHT
+       mainCanvas  – osakesed (põhipilt)
+       heatCanvas  – soojuskaardi overlay
+       iceOverlay  – ajajäätumise visuaalne märge
+     ============================================================== -->
+<div id="wrap">
+    <canvas id="mainCanvas"></canvas>
+    <canvas id="heatCanvas"></canvas>
+    <div id="iceOverlay"></div>
+    <div id="hud">osakesi: 0</div>
+    <a href="../portfoolio/index.html" id="portLink">← Portfoolio</a>
+</div>
+
+<script>
+/* ================================================================
+   PARTICLE SANDBOX – Täielik kommenteeritud simulaator
+   ================================================================
+
+   Arhitektuur (koodiosad):
+     §1  Lõuendi seadistus
+     §2  Globaalsed konstandid ja olek
+     §3  Particle – ühe osake andmeklass
+     §4  SpatialGrid – ruumiline räsi O(N) naabrotsinguks
+     §5  AudioEngine – protseduuriline helimootor (Web Audio API)
+     §6  spawnParticle – osakese loomine
+     §7  UI vastused (nupud, liugrid)
+     §8  toggleOrganize – "LIIV" teksti moodustamine
+     §9  updatePhysics – füüsika simulatsioon (kõik 10 funktsiooni)
+     §10 render – põhilõuendi joonistusrutiin
+     §11 renderHeatmap – soojuskaardi kiht
+     §12 Hiire- ja puutesündmused
+     §13 Animatsioonisilmus (requestAnimationFrame)
+
+   ================================================================ */
+
+
+// ────────────────────────────────────────────────────────────────
+// §1  LÕUENDI SEADISTUS
+// ────────────────────────────────────────────────────────────────
+
+const mainCanvas = document.getElementById('mainCanvas');
+const ctx        = mainCanvas.getContext('2d');
+const heatCanvas = document.getElementById('heatCanvas');
+const hctx       = heatCanvas.getContext('2d');
+
+/**
+ * resizeCanvases – seab mõlemad lõuendid täisekraanile.
+ * Kutsutakse käivitamisel ja akna suuruse muutumisel.
+ */
+function resizeCanvases() {
+    const wrap = document.getElementById('wrap');
+    mainCanvas.width  = heatCanvas.width  = wrap.clientWidth;
+    mainCanvas.height = heatCanvas.height = wrap.clientHeight;
+}
+
+resizeCanvases();
+window.addEventListener('resize', () => {
+    resizeCanvases();
+    grid.resize(mainCanvas.width, mainCanvas.height);
+});
+
+
+// ────────────────────────────────────────────────────────────────
+// §2  GLOBAALSED KONSTANDID JA OLEK
+// ────────────────────────────────────────────────────────────────
+
+const GRAVITY       = 0.18;   // Gravitatsioonikiirendus (px/kaader²)
+const MAX_PARTICLES = 4000;   // Maksimaalne osakeste arv ekraanil
+const PARTICLE_R    = 3;      // Osake raadius pikslites
+const LIFE_MS       = 10000;  // Osake eluiga millisekunditees (10 s)
+const CELL_SIZE     = 10;     // Ruumilise räsi lahtrsuurus pikslites
+const SOUND_GAP_MS  = 85;     // Minimaalne paus kahe helisignaali vahel
+
+let particles    = [];        // Kõigi aktiivsete osakeste massiiv
+let frozen       = false;     // Kas aja külmutamine on sisse lülitatud
+let heatOn       = false;     // Kas soojuskaart on nähtav
+let organizing   = false;     // Kas self-organize moodia on aktiivne
+let currentMat   = 'sand';   // Praegune materjal
+let currentBrush = 'paint';  // Praegune pintslirežiim
+let mouseDown    = false;     // Kas hiirenupp on all
+let mouseX = 0, mouseY = 0;  // Praegune hiire positsioon
+let lastSoundMs  = 0;         // Viimase heli ajatempel
+
+
+// ────────────────────────────────────────────────────────────────
+// §3  PARTICLE KLASS
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * Particle esindab üht osakest simulatsioonis.
+ *
+ * Omadused:
+ *   x, y        – positsioon pikslites
+ *   vx, vy      – kiirus pikslites kaadris
+ *   h, s, l     – HSL värvus (h = toon 0–360, s = küllastus, l = heledus)
+ *   material    – füüsikaline käitumine: 'sand' | 'water' | 'gas'
+ *   age         – vanus millisekunditees (0 → LIFE_MS)
+ *   alive       – false kui osake peaks eemaldatama
+ *   r           – raadius
+ *   targetX/Y   – self-organize sihtpositsioon (null kui ei kasutata)
+ *   justCollided– heli piirangu lipp
+ */
+class Particle {
+    constructor(x, y, material, hue) {
+        this.x = x;
+        this.y = y;
+
+        // Algne juhuslik "puistamise" kiirus →
+        // pintslil klikkides lendavad osakesed laiali
+        this.vx = (Math.random() - 0.5) * 3.5;
+        this.vy = material === 'gas'
+            ? -(Math.random() * 3 + 1)   // gaas alustab ülessuunaliselt
+            : Math.random() * -1.5;       // muud osakesed pisut üles, siis kukuvad
+
+        this.material = material;
+
+        // Värvus: väike juhuslik variatsioon hue ümber → loomulikum välimus
+        this.h = ((hue + (Math.random() - 0.5) * 28) + 360) % 360;
+        this.s = material === 'water' ? 92 : 76;
+        this.l = 46 + Math.random() * 20;
+
+        this.r  = PARTICLE_R;
+        this.age = 0;
+        this.alive = true;
+        this.targetX = null;
+        this.targetY = null;
+        this.justCollided = false;
+    }
+
+    /** Tagastab CSS-i värgistring joonistamiseks */
+    get color() {
+        return `hsl(${this.h},${this.s}%,${this.l}%)`;
+    }
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// §4  SPATIAL GRID – RUUMILINE RÄSI
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * SpatialGrid jagab lõuendi ruudustiku lahtriteks.
+ *
+ * Eesmärk: kiire naabrite leidmine osakeste kokkupõrke kontrollimisel.
+ * Ilma selleta peaks iga osakest iga teisega võrdlema → O(N²) operatsiooni.
+ * Räsi vähendab selle O(N · k)-ni, kus k on naabrite keskmine arv lahtris.
+ *
+ * Kasutus:
+ *   grid.clear()          – tühjenda enne iga kaadrit
+ *   grid.insert(particle) – lisa osake oma lahtrisse
+ *   grid.query(x, y, r)   – tagasta kõik osakesed (x±r, y±r) alas
+ */
+class SpatialGrid {
+    constructor(cellSize, w, h) {
+        this.cs = cellSize;
+        this.resize(w, h);
+    }
+
+    resize(w, h) {
+        this.cols  = Math.ceil(w / this.cs) + 1;
+        this.rows  = Math.ceil(h / this.cs) + 1;
+        this.cells = new Array(this.cols * this.rows);
+    }
+
+    insert(p) {
+        const k = this._key(p.x, p.y);
+        (this.cells[k] ??= []).push(p);
+    }
+
+    query(x, y, r) {
+        const result = [];
+        const c0 = Math.max(0, Math.floor((x - r) / this.cs));
+        const c1 = Math.min(this.cols - 1, Math.floor((x + r) / this.cs));
+        const r0 = Math.max(0, Math.floor((y - r) / this.cs));
+        const r1 = Math.min(this.rows - 1, Math.floor((y + r) / this.cs));
+        for (let row = r0; row <= r1; row++) {
+            for (let col = c0; col <= c1; col++) {
+                const cell = this.cells[row * this.cols + col];
+                if (cell) for (const p of cell) result.push(p);
+            }
+        }
+        return result;
+    }
+
+    /** Tühjenda räsi (kutsutakse iga kaadri alguses) */
+    clear() { this.cells.fill(undefined); }
+
+    _key(x, y) {
+        const c = Math.max(0, Math.min(this.cols - 1, Math.floor(x / this.cs)));
+        const r = Math.max(0, Math.min(this.rows - 1, Math.floor(y / this.cs)));
+        return r * this.cols + c;
+    }
+}
+
+const grid = new SpatialGrid(CELL_SIZE, mainCanvas.width, mainCanvas.height);
+
+
+// ────────────────────────────────────────────────────────────────
+// §5  AUDIOMOOTOR – PROTSEDUURILINE HEL
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * AudioEngine loob osakeste kokkupõrketest lühikesi protseduurilisi helisid.
+ *
+ * Kasutatav API: Web Audio API (AudioContext, AudioBuffer, GainNode).
+ * AudioContext luuakse alles esimese kasutajainteraktsiooni peale –
+ * brauserid blokeerivad automaatse heli ilma kasutajatoiminguta.
+ *
+ * Iga materjali heli karakter:
+ *   sand  – kuiv kolin: valge müra, väga kiire summenemine (30ms)
+ *   water – pehme plits: müra aeglasema summenemisega (100ms)
+ *   gas   – kõrge krõbin: müra × sinus → moduleeritud toon
+ */
+const AudioEngine = (() => {
+    let ac = null;
+
+    function getAC() {
+        if (!ac) {
+            try {
+                ac = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                return null; // Web Audio pole toetatud
+            }
+        }
+        if (ac.state === 'suspended') ac.resume();
+        return ac;
+    }
+
+    function playCollision(material) {
+        const a = getAC();
+        if (!a) return;
+
+        const now = a.currentTime;
+        const len = Math.floor(a.sampleRate * 0.055); // 55ms puhver
+        const buf = a.createBuffer(1, len, a.sampleRate);
+        const d   = buf.getChannelData(0);
+
+        // Täida puhver materjali-spetsiifilise lainekujuga
+        for (let i = 0; i < len; i++) {
+            const t     = i / len;              // suhteline aeg 0→1
+            const noise = Math.random() * 2 - 1; // valge müra
+
+            let env; // summumiskõver
+            if (material === 'gas') {
+                // Gaas: kõrge sagedusega sinus moduleerib müra → krõbin
+                env = Math.exp(-t * 18) * Math.sin(i * 1.3);
+            } else if (material === 'water') {
+                // Vesi: pehme, aeglane summenemine → plits
+                env = Math.exp(-t * 9);
+            } else {
+                // Liiv: väga kiire summenemine → kuiv kolin
+                env = Math.exp(-t * 28);
+            }
+            d[i] = noise * env;
+        }
+
+        const src  = a.createBufferSource();
+        src.buffer = buf;
+
+        const gain = a.createGain();
+        gain.gain.setValueAtTime(0.13, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+
+        src.connect(gain);
+        gain.connect(a.destination);
+        src.start(now);
+    }
+
+    return { playCollision };
+})();
+
+
+// ────────────────────────────────────────────────────────────────
+// §6  SPAWN – OSAKESE LOOMINE
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * spawnParticle – loob uue osake ja lisab selle massiivi.
+ * Kui massiiv on täis (MAX_PARTICLES), eemaldatakse kõige vanem osake
+ * et hoida simulatsioon sujuvalt töötamas.
+ */
+function spawnParticle(x, y, mat, hue) {
+    if (particles.length >= MAX_PARTICLES) {
+        particles.splice(0, 1); // eemalda kõige vanem
+    }
+    particles.push(new Particle(x, y, mat, hue));
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// §7  UI VASTUSED – NUPP- JA LIUGRUUKÄSITLURID
+// ────────────────────────────────────────────────────────────────
+
+/** Vahetab aktiivseks materjali ja uuendab nupu visuaali */
+function setMaterial(mat) {
+    currentMat = mat;
+    ['sand', 'water', 'gas'].forEach(m =>
+        document.getElementById('btn-' + m).classList.toggle('active', m === mat)
+    );
+}
+
+/** Vahetab pintslirežiimi (maali / tõmba / tõuka) */
+function setBrush(mode) {
+    currentBrush = mode;
+    ['paint', 'attract', 'repel'].forEach(m =>
+        document.getElementById('btn-' + m).classList.toggle('active', m === mode)
+    );
+}
+
+/** Uuendab värvilapi visuaali vastavalt hue liugri väärtusele */
+function updateSwatch() {
+    const h = document.getElementById('hueRange').value;
+    document.getElementById('swatch').style.background = `hsl(${h},80%,60%)`;
+}
+
+/** Lülitab soojuskaardi sisse / välja */
+function toggleHeat() {
+    heatOn = !heatOn;
+    heatCanvas.style.display = heatOn ? 'block' : 'none';
+    document.getElementById('btn-heat').classList.toggle('active', heatOn);
+}
+
+/** Peatab / jätkab aja – osakesed külmuvad paigale */
+function toggleFreeze() {
+    frozen = !frozen;
+    document.getElementById('btn-freeze').classList.toggle('active', frozen);
+    document.getElementById('iceOverlay').style.display = frozen ? 'block' : 'none';
+}
+
+/**
+ * takeShot – laeb alla praeguse kaadri PNG-pildina.
+ * Sobib aja külmutamise (toggleFreeze) järgseks ekraanitõmmiseks.
+ */
+function takeShot() {
+    // Joonistame ühe täiendava kaadri, et pilt oleks värske
+    render();
+    const link = document.createElement('a');
+    link.download = 'particle-sandbox.png';
+    link.href = mainCanvas.toDataURL('image/png');
+    link.click();
+}
+
+/** Eemaldab kõik osakesed lõuendilt */
+function clearAll() {
+    particles = [];
+    organizing = false;
+    document.getElementById('btn-organize').classList.remove('active');
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// §8  SELF-ORGANIZE – "LIIV" TEKSTI MOODUSTAMINE
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * toggleOrganize – lülitab self-organize moodi sisse või välja.
+ *
+ * Algoritm:
+ *   1. Joonista tekst "LIIV" varjatud (offscreen) lõuendile.
+ *   2. Loe ImageData – kogu pikslid, kus alfa > 128 (täidetud).
+ *   3. Skaaleeri need koordinaadid põhilõuendi keskele.
+ *   4. Sega sihtpunktid juhuslikult (Fisher-Yates shuffle).
+ *   5. Kinnita igale osakesele üks sihtpunkt.
+ *   6. Fysika uuendus rakendab "vedru-jõudu" sihtpunkti suunas.
+ *
+ * Klikkimisel teist korda lülitatakse moodia välja:
+ * osakesed pöörduvad tavalise füüsika alla.
+ */
+function toggleOrganize() {
+    if (organizing) {
+        // Lülita välja – puhasta sihtpunktid
+        organizing = false;
+        particles.forEach(p => { p.targetX = null; p.targetY = null; });
+        document.getElementById('btn-organize').classList.remove('active');
+        return;
+    }
+
+    if (particles.length === 0) return;
+
+    organizing = true;
+    document.getElementById('btn-organize').classList.add('active');
+
+    // 1. Joonista tekst varjatud lõuendile
+    const ow = 320, oh = 96;
+    const off = document.createElement('canvas');
+    off.width = ow; off.height = oh;
+    const oc = off.getContext('2d');
+    oc.fillStyle = '#fff';
+    oc.font = 'bold 78px monospace';
+    oc.textAlign = 'center';
+    oc.textBaseline = 'middle';
+    oc.fillText('LIIV', ow / 2, oh / 2); // eesti keeles "liiv" = sand
+
+    // 2. Loe piksel-andmed
+    const imgData = oc.getImageData(0, 0, ow, oh).data;
+    const pts = [];
+    const step = 4; // proovivõtu samm – väiksem = rohkem sihtpunkte
+    const offX = mainCanvas.width  / 2 - ow / 2;
+    const offY = mainCanvas.height / 2 - oh / 2;
+
+    for (let y = 0; y < oh; y += step) {
+        for (let x = 0; x < ow; x += step) {
+            if (imgData[(y * ow + x) * 4 + 3] > 128) {
+                pts.push({ x: offX + x, y: offY + y });
+            }
+        }
+    }
+
+    // 3. Fisher-Yates shuffle – juhuslik jaotus osakeste vahel
+    for (let i = pts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pts[i], pts[j]] = [pts[j], pts[i]];
+    }
+
+    // 4. Kinnita igale osakesele sihtpunkt (tsükliliselt kui osakeseid rohkem)
+    particles.forEach((p, i) => {
+        const t = pts[i % pts.length];
+        p.targetX = t.x;
+        p.targetY = t.y;
+    });
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// §9  FÜÜSIKA SIMULATSIOON
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * updatePhysics(dt) – üks simulatsiooniastmes.
+ * Kutsutakse iga kaadri alguses (enne joonistamist).
+ *
+ * Funktsiooni sisu kattab kõiki nõutud funktsioone:
+ *   F1 Brush Physics       – osakesed langevad gravitatsiooni mõjul
+ *   F2 Material Types      – liiv/vesi/gaas käituvad erinevalt
+ *   F3 Attract & Repel     – pintslir jõud
+ *   F4 Color Fusion        – värvide segunemine kokkupõrkel
+ *   F5 Collision Sound     – protseduuriline heli kokkupõrkel
+ *   F6 Self-Organization   – vedru-jõud sihtpunktide suunas
+ *   F7 Wind Force          – globaalne horisontaalne jõud
+ *   F8 Life & Death        – osakesed kaovad 10 s pärast
+ *   F9 Heat Map            – → renderHeatmap() funktsioon
+ *   F10 Time Freeze        – frozen lipu kontrollimine
+ *
+ * @param {number} dt – kaadri kestus millisekunditees
+ */
+function updatePhysics(dt) {
+    // F10: Külmutatud aja korral ära midagi tee
+    if (frozen) return;
+
+    const W    = mainCanvas.width;
+    const H    = mainCanvas.height;
+    const wind = parseFloat(document.getElementById('windRange').value);
+    const bR   = parseFloat(document.getElementById('brushRange').value) * 2.5;
+    const now  = performance.now();
+
+    // Ehita ruumiline räsi – vajalik kiireks naabrite leidmiseks
+    grid.clear();
+    for (const p of particles) grid.insert(p);
+
+    const deadIdx = []; // surnud osakeste indeksid (eemaldamiseks)
+
+    for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        // ── F8: LIFE & DEATH ──────────────────────────────────────
+        // Osake "sureb" (kaob) kui ta vanus ületab LIFE_MS (10 sekundit).
+        // Uued osakesed "sünnivad" hiirekliki kohal (§13 sündmused).
+        p.age += dt;
+        if (p.age >= LIFE_MS) {
+            deadIdx.push(i);
+            continue;
+        }
+
+        // ── F3: ATTRACT & REPEL PINTSEL ──────────────────────────
+        // Kui hiir on all ja pintsel pole "maali" režiimis,
+        // rakenda gravitatsioonisarnast jõudu kõigile osakestele
+        // pintsliraadiuses. Tõmba: osake liigub hiire poole.
+        // Tõuka: osake põrkub hiire eest eemale.
+        if (mouseDown && currentBrush !== 'paint') {
+            const dx   = mouseX - p.x;
+            const dy   = mouseY - p.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < bR && dist > 0.5) {
+                const dir   = currentBrush === 'attract' ? 1 : -1;
+                const force = dir * 0.65 / dist;
+                p.vx += dx * force;
+                p.vy += dy * force;
+            }
+        }
+
+        // ── F2: MATERJALIPÕHINE GRAVITATSIOON JA HÕÕRDUMINE ─────
+        // Iga materjal käitub erinevalt:
+        //   sand  – täis gravitatsioon, kõrge hõõrdumine (kukub ja peatub)
+        //   water – leebem gravitatsioon, madal hõõrdumine (voolab)
+        //   gas   – gravitasi on negatiivne (tõuseb üles) + turbulentsus
+        if (p.material === 'sand') {
+            p.vy += GRAVITY;
+            p.vx *= 0.978;
+            p.vy *= 0.994;
+        } else if (p.material === 'water') {
+            p.vy += GRAVITY * 0.52;
+            p.vx *= 0.997;
+            p.vy *= 0.997;
+        } else { // 'gas'
+            p.vy -= GRAVITY * 0.72;
+            p.vx += (Math.random() - 0.5) * 0.18; // gaasi turbulentsus
+            p.vx *= 0.990;
+            p.vy *= 0.990;
+        }
+
+        // ── F7: TUULEEJÕUD ────────────────────────────────────────
+        // Globaalne horisontaalne kiirendus, reguleeritav UI liugriga.
+        // wind väärtus -5..+5, kordaja 0.04 muudab selle peeneks mõjuks.
+        p.vx += wind * 0.04;
+
+        // ── F6: SELF-ORGANIZE VEDRU-JÕUD ─────────────────────────
+        // Kui self-organize on sees, tõmbavad sihtpunktid osakesi.
+        // "Vedru" efekt: jõud on proportsionaalne kaugusega sihtpunktist.
+        if (organizing && p.targetX !== null) {
+            const dx   = p.targetX - p.x;
+            const dy   = p.targetY - p.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 1.5) {
+                p.vx += dx * 0.013;
+                p.vy += dy * 0.013;
+            } else {
+                // Sihtpunktis – summenda liikumine (summutus)
+                p.vx *= 0.60;
+                p.vy *= 0.60;
+            }
+        }
+
+        // ── F1: BRUSH PHYSICS – POSITSIOON UUENDUS ───────────────
+        // Liida kiirus positsioonile → simuleerib aja kulgu.
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // ── SEINTE KOKKUPÕRGE ────────────────────────────────────
+        // Vasak serv
+        if (p.x - p.r < 0) { p.x = p.r; p.vx = Math.abs(p.vx) * 0.45; }
+        // Parem serv
+        if (p.x + p.r > W) { p.x = W - p.r; p.vx = -Math.abs(p.vx) * 0.45; }
+        // Ülemine serv
+        if (p.y - p.r < 0) { p.y = p.r; p.vy = Math.abs(p.vy) * 0.45; }
+        // Alumine serv – materjal-spetsiifiline põrkumine
+        if (p.y + p.r > H) {
+            p.y = H - p.r;
+            if (p.material === 'sand') {
+                p.vy *= -0.07;  // liiv peatub peaaegu kohe
+                p.vx *= 0.80;   // hõõrdumine põhjas
+            } else if (p.material === 'water') {
+                p.vy *= -0.04;  // vesi libiseb
+                p.vx *= 0.993;
+            } else {
+                p.vy *= -0.45;  // gaas põrkab (ei peaks reeglina jõudma)
+            }
+        }
+
+        // ── F4 + F5: OSAK-OSAK KOKKUPÕRGE, VÄRVIDE SEGUNEMINE, HEL
+        // Räsi abil leiame ainult lähedased naabrid (tõhusam kui O(N²)).
+        const neighbors = grid.query(p.x, p.y, p.r * 3.8);
+
+        for (const o of neighbors) {
+            if (o === p) continue;
+
+            const dx  = o.x - p.x;
+            const dy  = o.y - p.y;
+            const d2  = dx * dx + dy * dy;
+            const minD = p.r + o.r;
+
+            if (d2 >= minD * minD || d2 < 0.01) continue;
+
+            const d  = Math.sqrt(d2);
+            const nx = dx / d; // ühiknormaaliverktor
+            const ny = dy / d;
+
+            // Parandus: lükka kattuvad osakesed lahku (pool-pool)
+            const ovlp = (minD - d) * 0.5;
+            p.x -= nx * ovlp;
+            p.y -= ny * ovlp;
+            o.x += nx * ovlp;
+            o.y += ny * ovlp;
+
+            // Elastne kiiruste vahetus
+            const relVx = p.vx - o.vx;
+            const relVy = p.vy - o.vy;
+            const proj  = relVx * nx + relVy * ny;
+
+            if (proj > 0) {
+                const e = 0.38; // elastsuskoefitsient (0 = täiesti mitteelastne)
+                p.vx -= e * proj * nx;
+                p.vy -= e * proj * ny;
+                o.vx += e * proj * nx;
+                o.vy += e * proj * ny;
+            }
+
+            // ── F4: COLOR FUSION ──────────────────────────────────
+            // Kui kahe osake värvitoonid erinevad rohkem kui 5°,
+            // liiguvad nad üksteise suunas 4% sammuga iga kokkupõrke korral.
+            // Hue on ringikujuline (0–360), seega käsitleme ümbermurdumist.
+            let hdiff = o.h - p.h;
+            if (hdiff >  180) hdiff -= 360;
+            if (hdiff < -180) hdiff += 360;
+            if (Math.abs(hdiff) > 5) {
+                p.h = ((p.h + hdiff * 0.04) + 360) % 360;
+                o.h = ((o.h - hdiff * 0.04) + 360) % 360;
+            }
+
+            // ── F5: COLLISION SOUND ───────────────────────────────
+            // Piirang: heli kõlab mitte rohkem kui 1× iga SOUND_GAP_MS ms.
+            // justCollided lipp takistab sama osake korduvat helide käivitamist.
+            if (!p.justCollided && (now - lastSoundMs) > SOUND_GAP_MS) {
+                AudioEngine.playCollision(p.material);
+                lastSoundMs = now;
+                p.justCollided = true;
+                // Lähtesta lipp 200ms pärast
+                setTimeout(() => { if (p) p.justCollided = false; }, 200);
+            }
+        }
+    }
+
+    // Eemalda surnud osakesed (tagant ettepoole et indeksid ei nihku)
+    for (let i = deadIdx.length - 1; i >= 0; i--) {
+        particles.splice(deadIdx[i], 1);
+    }
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// §10 PÕHILÕUENDI JOONISTUSRUTIIN
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * render – joonistab praeguse oleku mainCanvas'ile.
+ *
+ * Samm-samm:
+ *   1. Puhasta lõuend ja joonista taust.
+ *   2. Iga osake: arvuta fadeout-alpha elu lõpu lähenedes.
+ *   3. Joonista osake täidetud ringina oma värviga.
+ *   4. Uuenda HUD-tekstid.
+ */
+function render() {
+    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+    // Tugev tume taust
+    ctx.fillStyle = '#080810';
+    ctx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+    const TWO_PI = Math.PI * 2;
+
+    for (const p of particles) {
+        // F8: Fadeout – viimased 20% elust (80%–100%) → läbipaistvus 1→0
+        const t     = p.age / LIFE_MS;
+        const alpha = t > 0.8 ? 1 - (t - 0.8) / 0.2 : 1;
+
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, TWO_PI);
+        ctx.fillStyle = p.color;
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // HUD – osakeste arv ja simulatsiooni seisund
+    document.getElementById('hud').textContent =
+        `osakesi: ${particles.length} | ${frozen ? '❄ külmutatud' : '▶ käib'}`;
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// §11 SOOJUSKAARDI JOONISTAMINE
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * renderHeatmap – F9: Heat Map.
+ * Joonistab osakeste tiheduse soojuskaardina heatCanvas'ile.
+ *
+ * Meetod:
+ *   Iga osake eest joonistatakse radiaalne gradient (punane → läbipaistev).
+ *   CSS filter:blur(14px) hägustab kihi → kõrgema tihedusega alad
+ *   paistavad erksa punase-oranžina (soojad kohad) ja tühjad alad
+ *   jäävad mustaks (külmad kohad) – täpselt nagu termokaamera efekt.
+ *
+ *   heatCanvas mix-blend-mode:screen laseb selle põhilõuendiga.
+ */
+function renderHeatmap() {
+    if (!heatOn) return;
+
+    hctx.clearRect(0, 0, heatCanvas.width, heatCanvas.height);
+
+    for (const p of particles) {
+        const g = hctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 22);
+        g.addColorStop(0,   'rgba(255,40,0,0.60)');    // kuum punkt – punane
+        g.addColorStop(0.4, 'rgba(255,140,0,0.25)');   // soe – oranž
+        g.addColorStop(1,   'rgba(0,0,200,0)');        // külm – läbipaistev
+        hctx.fillStyle = g;
+        hctx.beginPath();
+        hctx.arc(p.x, p.y, 22, 0, Math.PI * 2);
+        hctx.fill();
+    }
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// §12 HIIRE- JA PUUTESÜNDMUSED
+// ────────────────────────────────────────────────────────────────
+
+/** Arvutab hiire/puute koordinaadid lõuendiruumis */
+function canvasPos(e) {
+    const rect = mainCanvas.getBoundingClientRect();
+    const src  = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+}
+
+mainCanvas.addEventListener('mousedown', e => {
+    mouseDown = true;
+    const pos = canvasPos(e);
+    mouseX = pos.x;
+    mouseY = pos.y;
+});
+
+mainCanvas.addEventListener('mousemove', e => {
+    const pos = canvasPos(e);
+    mouseX = pos.x;
+    mouseY = pos.y;
+});
+
+mainCanvas.addEventListener('mouseup',    () => { mouseDown = false; });
+mainCanvas.addEventListener('mouseleave', () => { mouseDown = false; });
+
+// Puutesündmused mobiilile
+mainCanvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    mouseDown = true;
+    const pos = canvasPos(e);
+    mouseX = pos.x;
+    mouseY = pos.y;
+}, { passive: false });
+
+mainCanvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const pos = canvasPos(e);
+    mouseX = pos.x;
+    mouseY = pos.y;
+}, { passive: false });
+
+mainCanvas.addEventListener('touchend', () => { mouseDown = false; });
+
+
+// ────────────────────────────────────────────────────────────────
+// §13 ANIMATSIOONISILMUS
+// ────────────────────────────────────────────────────────────────
+
+let lastFrameTime = 0;
+
+/**
+ * gameLoop – peamine animatsioonisilmus.
+ * requestAnimationFrame kutsub seda ~60 korda sekundis.
+ *
+ * Kaadri töövoog:
+ *   1. Arvuta dt (aeg eelmisest kaadrist), maksimaalselt 50ms
+ *      et vältida suuri "hüppeid" akna taustal olemise järel.
+ *   2. F1 Brush Physics: maali-režiimis loo osakesed lohistamise ajal.
+ *   3. Füüsika uuendus (§9).
+ *   4. Joonista põhilõuend (§10).
+ *   5. Joonista soojuskaart (§11), kui see on aktiivne.
+ *   6. Registreeri järgmine kaader.
+ */
+function gameLoop(now) {
+    const dt = Math.min(now - lastFrameTime, 50); // dt piirang 50ms
+    lastFrameTime = now;
+
+    // F1 + F8: Osakeste loomine lohistamise ajal (maali-režiim)
+    // Life & Death: uued osakesed "sünnivad" hiire klikkimise kohal.
+    if (mouseDown && currentBrush === 'paint') {
+        const hue   = parseFloat(document.getElementById('hueRange').value);
+        const bSize = parseFloat(document.getElementById('brushRange').value);
+        // Suurem pintsel → rohkem osakeseid korraga
+        const count = Math.max(1, Math.round(bSize / 11));
+        for (let i = 0; i < count; i++) {
+            // Juhuslik nihe pintslisuuruse piires → loomulik "puistamine"
+            const ox = (Math.random() - 0.5) * bSize * 1.8;
+            const oy = (Math.random() - 0.5) * bSize * 1.8;
+            spawnParticle(mouseX + ox, mouseY + oy, currentMat, hue);
+        }
+    }
+
+    updatePhysics(dt);
+    render();
+    renderHeatmap();
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Käivita simulatsioon
+requestAnimationFrame(t => {
+    lastFrameTime = t;
+    requestAnimationFrame(gameLoop);
+});
+
+</script>
+</body>
+</html>
